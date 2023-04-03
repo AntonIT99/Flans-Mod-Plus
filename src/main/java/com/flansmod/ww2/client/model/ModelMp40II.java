@@ -2,19 +2,19 @@
 
 //Decompiled by Procyon!
 
-package com.flansmod.client.model.ww2;
+package com.flansmod.ww2.client.model;
 
 import com.flansmod.client.tmt.*;
 import net.minecraft.client.model.*;
 import com.flansmod.common.vector.*;
 import com.flansmod.client.model.*;
 
-public class ModelMp40 extends ModelGun
+public class ModelMp40II extends ModelGun
 {
     int textureX;
     int textureY;
     
-    public ModelMp40() {
+    public ModelMp40II() {
         this.textureX = 128;
         this.textureY = 128;
         (this.gunModel = new ModelRendererTurbo[32])[0] = new ModelRendererTurbo((ModelBase)this, 1, 1, this.textureX, this.textureY);

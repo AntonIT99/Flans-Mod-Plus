@@ -2,7 +2,7 @@
 
 //Decompiled by Procyon!
 
-package com.flansmod.client.model.ww2;
+package com.flansmod.ww2.client.model;
 
 import com.flansmod.client.tmt.*;
 import net.minecraft.client.model.*;
