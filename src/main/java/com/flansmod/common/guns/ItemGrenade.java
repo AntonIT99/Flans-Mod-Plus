@@ -83,9 +83,7 @@ public class ItemGrenade extends ItemShootable implements IFlanItem
 					itemName = itemName.split("\\.")[0];
 				}
 				ItemStack dropStack = InfoType.getRecipeElement(itemName, damage);
-				if (dropStack != null) {
-					world.spawnEntityInWorld(new EntityItem(world, player.posX, player.posY, player.posZ, dropStack));
-				}
+				world.spawnEntityInWorld(new EntityItem(world, player.posX, player.posY, player.posZ, dropStack));
 			}
 		}
 		return stack;
@@ -116,6 +114,7 @@ public class ItemGrenade extends ItemShootable implements IFlanItem
 			float pitch, double motionX, double motionY, double motionZ,
 			EntityLivingBase shooter, float gunDamage, int itemDamage,
 			InfoType shotFrom) {
+		// TODO Auto-generated method stub
 		return null;
 	}
 
@@ -131,6 +130,7 @@ public class ItemGrenade extends ItemShootable implements IFlanItem
 	public EntityShootable getEntity(World worldObj, Vec3 origin, float yaw,
 			float pitch, EntityLivingBase shooter, float spread, float damage, float speed,
 			int itemDamage, InfoType shotFrom) {
+		// TODO Auto-generated method stub
 		return null;
 	}
 

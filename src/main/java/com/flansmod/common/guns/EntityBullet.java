@@ -1,35 +1,15 @@
 package com.flansmod.common.guns;
 
-import com.flansmod.api.IEntityBullet;
-import com.flansmod.client.FlansModResourceHandler;
-import com.flansmod.client.debug.EntityDebugDot;
-import com.flansmod.common.*;
-import com.flansmod.common.driveables.EntityDriveable;
-import com.flansmod.common.driveables.EntityPlane;
-import com.flansmod.common.driveables.EntitySeat;
-import com.flansmod.common.driveables.EntityVehicle;
-import com.flansmod.common.driveables.mechas.EntityMecha;
-import com.flansmod.common.eventhandlers.BulletHitEvent;
-import com.flansmod.common.eventhandlers.BulletLockOnEvent;
-import com.flansmod.common.guns.PenetrationLoss.PenetrationLossType;
-import com.flansmod.common.guns.raytracing.*;
-import com.flansmod.common.network.PacketFlak;
-import com.flansmod.common.network.PacketHitMarker;
-import com.flansmod.common.network.PacketPlaySound;
-import com.flansmod.common.teams.Team;
-import com.flansmod.common.teams.TeamsManager;
-import com.flansmod.common.types.InfoType;
-import com.flansmod.common.vector.Vector3f;
-import cpw.mods.fml.common.FMLCommonHandler;
-import cpw.mods.fml.common.network.ByteBufUtils;
-import cpw.mods.fml.common.registry.GameRegistry;
-import cpw.mods.fml.common.registry.IEntityAdditionalSpawnData;
-import cpw.mods.fml.relauncher.Side;
-import cpw.mods.fml.relauncher.SideOnly;
+import com.flansmod.common.driveables.*;
 import io.netty.buffer.ByteBuf;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
-import net.minecraft.client.Minecraft;
+import net.minecraft.client.entity.EntityClientPlayerMP;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.item.EntityItem;
@@ -41,13 +21,45 @@ import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
-import net.minecraft.util.*;
+import net.minecraft.util.AxisAlignedBB;
+import net.minecraft.util.DamageSource;
+import net.minecraft.util.EntityDamageSourceIndirect;
+import net.minecraft.util.MathHelper;
+import net.minecraft.util.MovingObjectPosition;
+import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import com.flansmod.api.IEntityBullet;
+import com.flansmod.client.debug.EntityDebugDot;
+import com.flansmod.common.FlansMod;
+import com.flansmod.common.PlayerData;
+import com.flansmod.common.PlayerHandler;
+import com.flansmod.common.RotatedAxes;
+import com.flansmod.common.driveables.mechas.EntityMecha;
+import com.flansmod.common.eventhandlers.BulletHitEvent;
+import com.flansmod.common.guns.raytracing.BlockHit;
+import com.flansmod.common.guns.raytracing.BulletHit;
+import com.flansmod.common.guns.raytracing.DriveableHit;
+import com.flansmod.common.guns.raytracing.EntityHit;
+import com.flansmod.common.guns.raytracing.EnumHitboxType;
+import com.flansmod.common.guns.raytracing.PlayerBulletHit;
+import com.flansmod.common.guns.raytracing.PlayerHitbox;
+import com.flansmod.common.guns.raytracing.PlayerSnapshot;
+import com.flansmod.common.network.PacketFlak;
+import com.flansmod.common.network.PacketPlaySound;
+import com.flansmod.common.network.PacketHitMarker;
+import com.flansmod.common.teams.Team;
+import com.flansmod.common.teams.TeamsManager;
+import com.flansmod.common.types.InfoType;
+import com.flansmod.common.vector.Vector3f;
+
+import cpw.mods.fml.common.FMLCommonHandler;
+import cpw.mods.fml.common.network.ByteBufUtils;
+import cpw.mods.fml.common.registry.GameRegistry;
+import cpw.mods.fml.common.registry.IEntityAdditionalSpawnData;
+import cpw.mods.fml.relauncher.Side;
+import cpw.mods.fml.relauncher.SideOnly;
 
 public class EntityBullet extends EntityShootable implements IEntityAdditionalSpawnData, IEntityBullet {
     private static int bulletLife = 600; //Kill bullets after 30 seconds
@@ -55,10 +67,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
     private int ticksInAir;
     public BulletType type;
 
-    public ShootableType getType() {
-        return type;
-    }
-
+    public ShootableType getType() { return type; }
     /**
      * What type of weapon did this come from? For death messages
      */
@@ -83,6 +92,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
     public double prevDistanceToEntity = 0;
     public boolean toggleLock = false;
 
+    public double thisSpeed = 0;
     public int closeCount = 0;
     public int soundTime = 0;
     //Used to store speed for submunitions
@@ -101,12 +111,6 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
     public float lastHitPenAmount = 1F;
 
     public float penetratingPower;
-
-    /*
-     * When the bullet loses penetration, the cause and amount is saved to this list
-     */
-    public ArrayList<PenetrationLoss> penetrationLosses = new ArrayList<>();
-
 
     public int submunitionDelay = 20;
     public boolean hasSetSubDelay = false;
@@ -251,12 +255,8 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                 }
             }
 
-            if (closestEntity != null) {
-                BulletLockOnEvent bulletLockOnEvent = new BulletLockOnEvent(this, closestEntity);
-                MinecraftForge.EVENT_BUS.post(bulletLockOnEvent);
-                if (!bulletLockOnEvent.isCanceled()) lockedOnTo = bulletLockOnEvent.getLockedOnTo();
-            }
-
+            if (closestEntity != null)
+                lockedOnTo = closestEntity;
         }
     }
 
@@ -278,13 +278,13 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         super.onUpdate();
 
         if (initialTick) {
-            initialSpeed = (float) Math.sqrt((motionX * motionX) + (motionY * motionY) + (motionZ * motionZ));
+            initialSpeed = (float)Math.sqrt((motionX * motionX) + (motionY * motionY) + (motionZ * motionZ));
             initialTick = false;
         }
 
         // Update the ping for hit detection
-        if (!worldObj.isRemote && owner instanceof EntityPlayerMP) {
-            pingOfShooter = ((EntityPlayerMP) owner).ping;
+        if (!worldObj.isRemote && owner instanceof  EntityPlayerMP) {
+            pingOfShooter = ((EntityPlayerMP)owner).ping;
         }
 
         prevPosX = posX;
@@ -356,7 +356,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         if (isDead)
             return;
 
-        //Detonation conditions
+//Detonation conditions
         if (!worldObj.isRemote) {
             if (ticksExisted > type.fuse && type.fuse > 0)
                 detonate();
@@ -381,7 +381,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                         break;
                     }
                     if (obj instanceof EntityDriveable && getDistanceToEntity((Entity) obj) < type.driveableProximityTrigger) {
-                        /*
+                        /**
                          if(TeamsManager.getInstance() != null && TeamsManager.getInstance().currentRound != null && ((EntityDriveable)obj).seats[0].riddenByEntity instanceof EntityPlayerMP && owner instanceof EntityPlayer)
                          {
                          EntityPlayerMP player = (EntityPlayerMP)((EntityDriveable)obj).seats[0].riddenByEntity;
@@ -398,7 +398,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
             }
         }
         //Create a list for all bullet hits
-        ArrayList<BulletHit> hits = new ArrayList<>();
+        ArrayList<BulletHit> hits = new ArrayList<BulletHit>();
 
         Vector3f origin = new Vector3f(posX, posY, posZ);
         Vector3f motion = new Vector3f(motionX, motionY, motionZ);
@@ -445,11 +445,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                         // The shooter of this bullet is immune to it for the first second.
                         continue;
                     int snapshotToTry = TeamsManager.bulletSnapshotMin;
-                    float snapshotPortion = pingOfShooter / (float) TeamsManager.bulletSnapshotDivisor;
-
-                    // Just make sure it's positive...
-                    snapshotToTry = Math.max(0, snapshotToTry);
-
+                    float snapshotPortion = pingOfShooter / (float)TeamsManager.bulletSnapshotDivisor;
                     if (TeamsManager.bulletSnapshotDivisor > 0) {
                         snapshotToTry += snapshotPortion;
                     }
@@ -469,8 +465,8 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                     if (snapshot == null)
                         shouldDoNormalHitDetect = true;
                     else {
-                        boolean snapshotBeforeExists = snapshotToTry != 0 && data.snapshots[snapshotToTry - 1] != null;
-                        boolean snapshotAfterExists = snapshotToTry + 1 < data.snapshots.length && data.snapshots[snapshotToTry + 1] != null;
+                        boolean snapshotBeforeExists = snapshotToTry != 0 && data.snapshots[snapshotToTry-1] != null;
+                        boolean snapshotAfterExists = snapshotToTry + 1 < data.snapshots.length && data.snapshots[snapshotToTry+1] != null;
 
                         // -0.5 = before
                         // 0 = centered
@@ -481,7 +477,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                         float lb = offset - 0.5F;
                         float ub = offset + 0.5F;
 
-                        ArrayList<BulletHit> onStepHits;
+                        ArrayList<BulletHit> onStepHits = new ArrayList<>();
                         ArrayList<BulletHit> altStepHits = new ArrayList<>();
 
                         if (offset > 0.5 && snapshotAfterExists) {
@@ -531,21 +527,18 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                         if (hitLambda < 0)
                             hitLambda = -hitLambda;
 
-                        hits.add(new PlayerBulletHit(new PlayerHitbox(player, new RotatedAxes(), new Vector3f(), new Vector3f(), new Vector3f(), new Vector3f(), EnumHitboxType.BODY), hitLambda));
+                        hits.add(new PlayerBulletHit(new PlayerHitbox(player, new RotatedAxes(), new Vector3f(), new Vector3f(), new Vector3f(),  new Vector3f(), EnumHitboxType.BODY), hitLambda));
                     }
                 }
             } else {
                 Entity entity = (Entity) obj;
                 if (entity != this && entity != owner && !entity.isDead && !(entity instanceof EntityItem) && !(entity instanceof EntityXPOrb) && !(entity instanceof EntityArrow) &&
                         (!entity.getClass().toString().contains("flansmod.") || entity instanceof EntityAAGun || entity instanceof EntityGrenade)
-                        && !entity.getClass().toString().contains("holographicdisplays") && !entity.getClass().toString().contains("EntityScent")
-                        && !(entity instanceof EntityLivingBase && ((EntityLivingBase) entity).getHealth() == 0.0)) {
-
+                        && !entity.getClass().toString().contains("holographicdisplays") && !entity.getClass().toString().contains("EntityScent")) {
                     AxisAlignedBB bb = entity.boundingBox.addCoord(
                             -(entity.posX - entity.prevPosX) * 2,
                             -(entity.posY - entity.prevPosY) * 2,
                             -(entity.posZ - entity.prevPosZ) * 2);
-
                     MovingObjectPosition mop = bb.expand(hitBoxSize, hitBoxSize, hitBoxSize).calculateIntercept(origin.toVec3(), Vec3.createVectorHelper(posX + motionX, posY + motionY, posZ + motionZ));
                     if (mop != null) {
                         Vector3f hitPoint = new Vector3f(mop.hitVec.xCoord - posX, mop.hitVec.yCoord - posY, mop.hitVec.zCoord - posZ);
@@ -568,28 +561,25 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         //Ray trace the bullet by comparing its next position to its current position
         Vec3 posVec = Vec3.createVectorHelper(posX, posY, posZ);
         Vec3 nextPosVec = Vec3.createVectorHelper(posX + motionX, posY + motionY, posZ + motionZ);
+        MovingObjectPosition hit = worldObj.func_147447_a(posVec, nextPosVec, false, true, true);
 
-        //Old way of finding block hit -> MovingObjectPosition hit = worldObj.func_147447_a(posVec, nextPosVec, false, true, true);
-        ArrayList<MovingObjectPosition> rayTraceHits = this.rayTraceAllBlocks(worldObj, posVec, nextPosVec, false, true, true);
-        if (rayTraceHits != null) {
-            for (MovingObjectPosition hit : rayTraceHits) {
-                //Calculate the lambda value of the intercept
-                posVec = Vec3.createVectorHelper(posX, posY, posZ);
-                Vec3 hitVec = posVec.subtract(hit.hitVec);
-                float lambda = 1;
-                //Try each co-ordinate one at a time.
-                if (motionX != 0)
-                    lambda = (float) (hitVec.xCoord / motionX);
-                else if (motionY != 0)
-                    lambda = (float) (hitVec.yCoord / motionY);
-                else if (motionZ != 0)
-                    lambda = (float) (hitVec.zCoord / motionZ);
+        posVec = Vec3.createVectorHelper(posX, posY, posZ);
 
-                if (lambda < 0)
-                    lambda = -lambda;
+        if (hit != null) {
+            //Calculate the lambda value of the intercept
+            Vec3 hitVec = posVec.subtract(hit.hitVec);
+            float lambda = 1;
+            //Try each co-ordinate one at a time.
+            if (motionX != 0)
+                lambda = (float) (hitVec.xCoord / motionX);
+            else if (motionY != 0)
+                lambda = (float) (hitVec.yCoord / motionY);
+            else if (motionZ != 0)
+                lambda = (float) (hitVec.zCoord / motionZ);
 
-                hits.add(new BlockHit(hit, lambda));
-            }
+            if (lambda < 0)
+                lambda = -lambda;
+            hits.add(new BlockHit(hit, lambda));
         }
 
         //We hit something
@@ -602,17 +592,17 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
             lastHitHeadshot = false;
 
             for (BulletHit bulletHit : hits) {
-                BulletHitEvent bulletHitEvent = new BulletHitEvent(this, bulletHit);
-                MinecraftForge.EVENT_BUS.post(bulletHitEvent);
-                if (bulletHitEvent.isCanceled()) continue;
-
+            	BulletHitEvent bulletHitEvent = new BulletHitEvent(this, bulletHit);
+            	MinecraftForge.EVENT_BUS.post(bulletHitEvent);
+            	if(bulletHitEvent.isCanceled()) continue;
+            	
                 if (bulletHit instanceof DriveableHit) {
                     if (type.entityHitSoundEnable)
                         PacketPlaySound.sendSoundPacket(posX, posY, posZ, type.hitSoundRange, dimension, type.hitSound, true);
-                    boolean isFriendly = false;
+                    boolean isFriendly=false;
                     DriveableHit driveableHit = (DriveableHit) bulletHit;
                     driveableHit.driveable.lastAtkEntity = owner;
-                    if (TeamsManager.getInstance().currentRound != null) {
+                    if(TeamsManager.getInstance().currentRound!=null) {
                         for (EntitySeat seat : driveableHit.driveable.seats) {
                             if (seat.riddenByEntity instanceof EntityPlayerMP) {
                                 PlayerData dataDriver = PlayerHandler.getPlayerData((EntityPlayerMP) seat.riddenByEntity);
@@ -623,8 +613,8 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                             }
                         }
                     }
-                    if (isFriendly) {
-                        penetratingPower = 0;
+                    if(isFriendly){
+                        penetratingPower=0;
                     } else {
                         penetratingPower = driveableHit.driveable.bulletHit(this, driveableHit, penetratingPower);
                     }
@@ -649,17 +639,13 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                             showCrosshair = true;
                         }
                     }
-
+                    
                     PlayerBulletHit playerHit = (PlayerBulletHit) bulletHit;
-                    float prevPenetratingPower = penetratingPower;
                     penetratingPower = playerHit.hitbox.hitByBullet(this, penetratingPower);
-
-                    penetrationLosses.add(new PenetrationLoss((prevPenetratingPower - penetratingPower), PenetrationLossType.PLAYER));
-
                     if (FlansMod.DEBUG)
                         worldObj.spawnEntityInWorld(new EntityDebugDot(worldObj, new Vector3f(posX + motionX * playerHit.intersectTime, posY + motionY * playerHit.intersectTime, posZ + motionZ * playerHit.intersectTime), 1000, 1F, 0F, 0F));
                 } else if (bulletHit instanceof EntityHit) {
-                    if (type.entityHitSoundEnable)
+                	if (type.entityHitSoundEnable)
                         PacketPlaySound.sendSoundPacket(posX, posY, posZ, type.hitSoundRange, dimension, type.hitSound, true);
 
                     if (!worldObj.isRemote) {
@@ -670,8 +656,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                     }
 
                     EntityHit entityHit = (EntityHit) bulletHit;
-                    float d = getDamageAffectedByPenetration();
-
+                    float d = damage;
                     if (entityHit.entity instanceof EntityLivingBase) {
                         d *= type.damageVsLiving;
                         if (entityHit.entity != owner)
@@ -680,7 +665,6 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                     } else {
                         d *= type.damageVsEntity;
                     }
-
                     if (entityHit.entity.attackEntityFrom(getBulletDamage(false), d) && entityHit.entity instanceof EntityLivingBase) {
                         EntityLivingBase living = (EntityLivingBase) entityHit.entity;
                         for (PotionEffect effect : type.hitEffects) {
@@ -693,58 +677,22 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                     if (type.setEntitiesOnFire)
                         entityHit.entity.setFire(20);
                     penetratingPower -= 1F;
-
-                    penetrationLosses.add(new PenetrationLoss(1F, PenetrationLossType.ENTITY));
-
                     if (FlansMod.DEBUG) {
                         worldObj.spawnEntityInWorld(new EntityDebugDot(worldObj, new Vector3f(posX + motionX * entityHit.intersectTime, posY + motionY * entityHit.intersectTime, posZ + motionZ * entityHit.intersectTime), 1000, 1F, 1F, 0F));
                         FlansMod.log(entityHit.entity.toString() + ": d=" + d + ": damage=" + damage + ": type.damageVsEntity=" + type.damageVsEntity);
-                    }
+                    }    
                 } else if (bulletHit instanceof BlockHit) {
                     BlockHit blockHit = (BlockHit) bulletHit;
                     MovingObjectPosition raytraceResult = blockHit.raytraceResult;
-                    Vec3 hitVec = raytraceResult.hitVec;
-
                     //If the hit wasn't an entity hit, then it must've been a block hit
                     int xTile = raytraceResult.blockX;
                     int yTile = raytraceResult.blockY;
                     int zTile = raytraceResult.blockZ;
-
-
                     if (FlansMod.DEBUG)
-                        worldObj.spawnEntityInWorld(new EntityDebugDot(worldObj, new Vector3f(hitVec.xCoord, hitVec.yCoord, hitVec.zCoord), 1000, 0F, 1F, 0F));
-
+                        worldObj.spawnEntityInWorld(new EntityDebugDot(worldObj, new Vector3f(raytraceResult.hitVec.xCoord, raytraceResult.hitVec.yCoord, raytraceResult.hitVec.zCoord), 1000, 0F, 1F, 0F));
+                    
                     Block block = worldObj.getBlock(xTile, yTile, zTile);
                     Material mat = block.getMaterial();
-
-                    if (FlansMod.enableBlockPenetration) {
-                        boolean penetrableBlockFound = false;
-
-                        for (PenetrableBlock penetrableBlock : FlansMod.penetrableBlocks) {
-                            if (block != penetrableBlock.getBlock()) continue;
-
-                            int metadata = penetrableBlock.getMetadata();
-                            if (metadata != -1 && metadata != worldObj.getBlockMetadata(xTile, yTile, zTile)) continue;
-
-                            float hardness = penetrableBlock.getHardness() * (type.getBlockPenetrationModifier() > 0 ? (1F / type.getBlockPenetrationModifier()) : 1F);
-
-                            penetratingPower -= hardness;
-                            if (penetratingPower < 0) break;
-
-                            FlansMod.proxy.playBlockBreakSound(xTile, yTile, zTile, block, this.dimension);
-                            if (penetrableBlock.breaks()) worldObj.setBlockToAir(xTile, yTile, zTile);
-
-                            penetrationLosses.add(new PenetrationLoss(hardness, PenetrationLossType.BLOCK));
-
-                            penetrableBlockFound = true;
-                        }
-                        //The block was penetrated, so the bullet can keep going
-                        if (penetrableBlockFound) continue;
-                    }
-
-                    if (type.hitSoundEnable)
-                        PacketPlaySound.sendSoundPacket(posX, posY, posZ, type.hitSoundRange, dimension, type.hitSound, true);
-
                     //If the bullet breaks glass, and can do so according to FlansMod, do so.
                     if (type.breaksGlass && mat == Material.glass) {
                         if (TeamsManager.canBreakGlass) {
@@ -752,89 +700,46 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                             FlansMod.proxy.playBlockBreakSound(xTile, yTile, zTile, block, this.dimension);
                         }
                     }
-                    if (type.hitSoundEnable) {
-                        if (block.equals(Blocks.brick_block)) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_bricks").toString(), 0.5F, 1);
-                        } else if (mat == Material.ground || mat == Material.grass || mat == Material.sand || mat == Material.clay || mat == Material.tnt) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_dirt").toString(), 0.5F, 1);
-                        } else if (mat == Material.glass || mat == Material.redstoneLight || mat == Material.ice || mat == Material.packedIce) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_glass").toString(), 0.5F, 1);
-                        } else if (mat == Material.iron || mat == Material.anvil) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_metal").toString(), 0.5F, 1);
-                        } else if (mat == Material.rock) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_rock").toString(), 0.5F, 1);
-                        } else if (mat == Material.wood) {
-                            worldObj.playSoundEffect(posX, posY, posZ, FlansModResourceHandler.getSound("impact_wood").toString(), 0.5F, 1);
-                        }
-                    }
-
 
                     if (worldObj.isRemote) {
-                        if (block.getMaterial() != Material.air && this.type.explosionRadius <= 30 && type.blockHitFXScale > 0) {
-                            // Calculate the number of block particles proportionally to explosionRadius
-                            double scalingFactor = Minecraft.getMinecraft().gameSettings.fancyGraphics ? 10 : 2;
-                                    ; // Adjust this value based on your desired particle density
-                            int numBlockParticles = (int) (Math.pow((this.type.explosionRadius + 1), 1.5) * scalingFactor + 20);
-
-                            for (int i = 0; i < numBlockParticles; i++) {
-                                // First particle
+                        if (block.getMaterial() != Material.air && this.type.explosionRadius <= 0) {
+                            int num = 2 + this.rand.nextInt(3);
+                            for (int i = 0; i < num; i++) {
                                 FlansMod.proxy.spawnParticle(
-                                        "blockdust_" + Block.getIdFromBlock(block) + "_" + this.worldObj.getBlockMetadata(xTile, xTile, xTile),
-                                        raytraceResult.hitVec.xCoord + ((double) this.rand.nextFloat() - 0.3D) * (double) this.width * 0.05D,
-                                        raytraceResult.hitVec.yCoord + ((double) this.rand.nextFloat() - 0.3D) * (double) this.width * 0.05D,
-                                        raytraceResult.hitVec.zCoord + ((double) this.rand.nextFloat() - 0.3D) * (double) this.width * 0.05D,
-                                        -this.motionX * (0.0011D + this.rand.nextGaussian() * 0.008D) * type.blockHitFXScale, // Adjusted horizontal velocity
-                                        Math.abs(0.305D + this.rand.nextDouble() * 0.125D) * type.blockHitFXScale, // Adjusted vertical velocity
-                                        -this.motionZ * (0.0011D + this.rand.nextGaussian() * 0.008D) * type.blockHitFXScale // Adjusted horizontal velocity
-                                );
-
-                                // Second particle
-                                FlansMod.proxy.spawnParticle(
-                                        "blockcrack_" + Block.getIdFromBlock(block) + "_" + this.worldObj.getBlockMetadata(xTile, xTile, xTile),
-                                        raytraceResult.hitVec.xCoord + ((double) this.rand.nextFloat() - 0.6D) * (double) this.width * 0.75D,
-                                        raytraceResult.hitVec.yCoord + ((double) this.rand.nextFloat() - 0.6D) * (double) this.width * 0.75D,
-                                        raytraceResult.hitVec.zCoord + ((double) this.rand.nextFloat() - 0.6D) * (double) this.width * 0.75D,
-                                        -this.motionX * (0.415D + this.rand.nextGaussian() * 0.1D) * type.blockHitFXScale, // Adjusted horizontal velocity
-                                        -this.motionY * (0.425D + Math.abs(this.rand.nextGaussian() * 0.1D)) * type.blockHitFXScale, // Adjusted vertical velocity
-                                        -this.motionZ * (0.415D + this.rand.nextGaussian() * 0.1D) * type.blockHitFXScale // Adjusted horizontal velocity
-                                );
-
+                                        "blockcrack_" + Block.getIdFromBlock(block) + "_" + this.worldObj.getBlockMetadata(xTile, yTile, zTile),
+                                        raytraceResult.hitVec.xCoord + ((double) this.rand.nextFloat() - 0.5D) * (double) this.width,
+                                        raytraceResult.hitVec.yCoord + 0.1D,
+                                        raytraceResult.hitVec.zCoord + ((double) this.rand.nextFloat() - 0.5D) * (double) this.width,
+                                        -this.motionX * 4.0D,
+                                        1.5D,
+                                        -this.motionZ * 4.0D);
+                                FlansMod.proxy.spawnParticle("explode", raytraceResult.hitVec.xCoord, raytraceResult.hitVec.yCoord, raytraceResult.hitVec.zCoord, 0, 0, 0);
                             }
                         }
                     }
 
+                    if (type.hitSoundEnable)
+                        PacketPlaySound.sendSoundPacket(posX, posY, posZ, type.hitSoundRange, dimension, type.hitSound, true);
+
                     if (type.bounciness > 0) {
-                        Vector3f hitPos = new Vector3f(hitVec);
+                        Vector3f hitPos = new Vector3f(raytraceResult.hitVec);
                         Vector3f preHitVel = Vector3f.sub(hitPos, origin, null);
                         Vector3f postHitVel = Vector3f.sub(motion, preHitVel, null);
 
                         Vector3f surfaceNormal;
 
-                        int sideHit = blockHit.raytraceResult.sideHit;
+                        int sideHit = raytraceResult.sideHit;
                         switch (sideHit) {
-                            case 0:
-                                surfaceNormal = new Vector3f(0, -1, 0);
-                                break;
-                            case 1:
-                                surfaceNormal = new Vector3f(0, 1, 0);
-                                break;
-                            case 2:
-                                surfaceNormal = new Vector3f(0, 0, -1);
-                                break;
-                            case 3:
-                                surfaceNormal = new Vector3f(0, 0, 1);
-                                break;
-                            case 5:
-                                surfaceNormal = new Vector3f(1, 0, 0);
-                                break;
-                            case 4:
-                            default:
-                                surfaceNormal = new Vector3f(-1, 0, 0);
-                                break;
+                            case 0: surfaceNormal = new Vector3f(0, -1, 0); break;
+                            case 1: surfaceNormal = new Vector3f(0, 1, 0); break;
+                            case 2: surfaceNormal = new Vector3f(0, 0, -1); break;
+                            case 3: surfaceNormal = new Vector3f(0, 0, 1); break;
+                            case 5: surfaceNormal = new Vector3f(1, 0, 0); break;
+                            case 4: default: surfaceNormal = new Vector3f(-1, 0, 0); break;
                         }
 
                         if (motion.lengthSquared() < 0.1F * initialSpeed) {
-                            setPosition(hitVec.xCoord, hitVec.yCoord, hitVec.zCoord);
+                            setPosition(raytraceResult.hitVec.xCoord, raytraceResult.hitVec.yCoord, raytraceResult.hitVec.zCoord);
                             setDead();
                         } else {
                             float lambda = postHitVel.length() / motion.length();
@@ -857,9 +762,10 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                             setVelocity(postHitVel.x / lambda, postHitVel.y / lambda, postHitVel.z / lambda);
                         }
                     } else {
-                        setPosition(hitVec.xCoord, hitVec.yCoord, hitVec.zCoord);
+                        setPosition(raytraceResult.hitVec.xCoord, raytraceResult.hitVec.yCoord, raytraceResult.hitVec.zCoord);
                         setDead();
                     }
+
                     break;
                 }
                 if (penetratingPower <= 0F || (type.explodeOnImpact && ticksInAir > 1)) {
@@ -871,7 +777,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
             }
 
             if (showCrosshair && owner instanceof EntityPlayerMP) {
-                FlansMod.getPacketHandler().sendTo(new PacketHitMarker(lastHitHeadshot, lastHitPenAmount, false), (EntityPlayerMP) owner);
+                FlansMod.getPacketHandler().sendTo(new PacketHitMarker(lastHitHeadshot, lastHitPenAmount, false), (EntityPlayerMP)owner);
             }
 
         }
@@ -950,12 +856,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
 
         // Damp penetration too
 
-        float prevPenetratingPower = penetratingPower;
         penetratingPower *= (1 - type.penetrationDecay);
-
-        if (type.penetrationDecay > 0) {
-            penetrationLosses.add(new PenetrationLoss((prevPenetratingPower - penetratingPower), PenetrationLossType.DECAY));
-        }
 
         // Apply homing action
         if (lockedOnTo != null) {
@@ -1088,6 +989,9 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
             this.motionX = rootx * motiona / roota;
             this.motionZ = rootz * motiona / roota;
             if (Math.abs(this.impactX - this.posX) < 1 && Math.abs(this.impactZ - this.posZ) < 1) {
+                double motionXab = this.motionX;
+                double motionYab = this.motionY;
+                double motionZab = this.motionZ;
                 double motionab = Math.sqrt((motionXa * motionXa) + (motionYa * motionYa) + (motionZa * motionZa));
                 this.motionX = 0;
                 this.motionY = -motionab;
@@ -1096,7 +1000,9 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         }
         this.renderDistanceWeight = 256D;
         if (owner != null && type.manualGuidance && VLSDelay <= 0 && lockedOnTo == null) {
-            /*
+
+            this.renderDistanceWeight = 256D;
+            /**
              boolean beamRider = true;
              if(!beamRider)
              {
@@ -1154,6 +1060,8 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
 
         if (type.torpedo) {
             if (isInWater()) {
+                Vector3f motion2 = new Vector3f(motionX, motionY, motionZ);
+                float length = motion.length();
                 motion.normalise();
                 motionY *= 0.3F;
                 motionX = motion.x * 1;
@@ -1175,19 +1083,14 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         rotationYaw = (float) ((Math.atan2(motionX, motionZ) * 180D) / 3.1415927410125732D);
         rotationPitch = (float) ((Math.atan2(motionY, motionXZ) * 180D) / 3.1415927410125732D);
         //Reset the range of the angles
-        while (rotationPitch - prevRotationPitch < -180F) {
-            prevRotationPitch -= 360F;
+        for (; rotationPitch - prevRotationPitch < -180F; prevRotationPitch -= 360F) {
         }
-        while (rotationPitch - prevRotationPitch >= 180F) {
-            prevRotationPitch += 360F;
+        for (; rotationPitch - prevRotationPitch >= 180F; prevRotationPitch += 360F) {
         }
-        while (rotationYaw - prevRotationYaw < -180F) {
-            prevRotationYaw -= 360F;
+        for (; rotationYaw - prevRotationYaw < -180F; prevRotationYaw -= 360F) {
         }
-        while (rotationYaw - prevRotationYaw >= 180F) {
-            prevRotationYaw += 360F;
+        for (; rotationYaw - prevRotationYaw >= 180F; prevRotationYaw += 360F) {
         }
-
         rotationPitch = prevRotationPitch + (rotationPitch - prevRotationPitch) * 0.2F;
         rotationYaw = prevRotationYaw + (rotationYaw - prevRotationYaw) * 0.2F;
 
@@ -1270,14 +1173,17 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                         prevPosX + dX * i + rand.nextGaussian() * spread, prevPosY + dY * i + rand.nextGaussian() * spread, prevPosZ + dZ * i + rand.nextGaussian() * spread,
                         0, 0, 0);
             }
+
         }
         //FlansMod.proxy.spawnParticle("explode", prevPosX + dX, prevPosY + dY, prevPosZ + dZ, motionX + (float)Math.random()*1 - 0.5, motionY + (float)Math.random()*1 - 0.5, motionZ +(float)Math.random()*1 - 0.5);
+
     }
 
 
     @SideOnly(Side.CLIENT)
     private void spawnHitParticles(double x, double y, double z) {
         FlansMod.proxy.spawnParticle("explode", x, y, z, 0, 0, 0);
+
     }
 
     public DamageSource getBulletDamage(boolean headshot) {
@@ -1347,9 +1253,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                     itemName = itemName.split("\\.")[0];
                 }
                 ItemStack dropStack = InfoType.getRecipeElement(itemName, damage);
-                if (dropStack != null) {
-                    entityDropItem(dropStack, 1.0F);
-                }
+                entityDropItem(dropStack, 1.0F);
             }
         } catch (Exception e) {
 //			FlansMod.log("EntityBullet.setDead() Error ("+this+")");
@@ -1362,11 +1266,9 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
     public float moveToTarget(float current, float target, float speed) {
 
         float pitchToMove = (float) ((Math.sqrt(target * target)) - Math.sqrt((current * current)));
-        while (pitchToMove > 180F) {
-            pitchToMove -= 360F;
+        for (; pitchToMove > 180F; pitchToMove -= 360F) {
         }
-        while (pitchToMove <= -180F) {
-            pitchToMove += 360F;
+        for (; pitchToMove <= -180F; pitchToMove += 360F) {
         }
 
         float signDeltaY = 0;
@@ -1385,6 +1287,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
         } else if (current < target) {
             current = current + speed;
         }
+
 
         return current;
     }
@@ -1452,10 +1355,7 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
                 itemName = itemName.split("\\.")[0];
             }
             ItemStack dropStack = InfoType.getRecipeElement(itemName, damage);
-
-            if (dropStack != null) {
-                entityDropItem(dropStack, 1.0F);
-            }
+            entityDropItem(dropStack, 1.0F);
         }
     }
 
@@ -1574,13 +1474,11 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
             if (lockedOnToID != -1)
                 lockedOnTo = worldObj.getEntityByID(lockedOnToID);
             type = BulletType.getBullet(ByteBufUtils.readUTF8String(data));
-
             penetratingPower = type.penetratingPower;
-
             String name = ByteBufUtils.readUTF8String(data);
             for (Object obj : worldObj.loadedEntityList) {
                 if (((Entity) obj).getCommandSenderName().equals(name))
-                    owner = (EntityLivingBase) obj;
+                    owner = (EntityPlayer) obj;
             }
         } catch (Exception e) {
             FlansMod.log("Failed to read bullet owner from server.");
@@ -1592,189 +1490,5 @@ public class EntityBullet extends EntityShootable implements IEntityAdditionalSp
     @Override
     public boolean isBurning() {
         return false;
-    }
-
-    /*
-     * Calculate the current damage of the bullet based on everything it has penetrated so far
-     */
-    public float getDamageAffectedByPenetration() {
-        if (type.penetratingPower <= 0 ||
-                (type.playerPenetrationEffectOnDamage == 0 && type.entityPenetrationEffectOnDamage == 0
-                        && type.blockPenetrationEffectOnDamage == 0 && type.penetrationDecayEffectOnDamage == 0))
-            return damage;
-
-        float totalPenetrationLostPercentage = 0F;
-
-        for (PenetrationLoss penetrationLoss : penetrationLosses) {
-            float effectOnDamage = penetrationLoss.getType().getEffectOnDamage(type);
-            float loss = penetrationLoss.getLoss();
-
-            if (effectOnDamage <= 0 || effectOnDamage > 1 || loss <= 0) continue;
-
-            float penetrationLostPercentage = (loss / type.penetratingPower);
-            if (penetrationLostPercentage == 0) continue;
-
-            totalPenetrationLostPercentage += (penetrationLostPercentage - penetrationLostPercentage * (1 - effectOnDamage));
-        }
-
-        return this.damage * (1 - totalPenetrationLostPercentage);
-    }
-
-    private ArrayList<MovingObjectPosition> rayTraceAllBlocks(World world, Vec3 p_147447_1_, Vec3 p_147447_2_, boolean p_147447_3_, boolean p_147447_4_, boolean p_147447_5_) {
-        if (!Double.isNaN(p_147447_1_.xCoord) && !Double.isNaN(p_147447_1_.yCoord) && !Double.isNaN(p_147447_1_.zCoord)) {
-            if (!Double.isNaN(p_147447_2_.xCoord) && !Double.isNaN(p_147447_2_.yCoord) && !Double.isNaN(p_147447_2_.zCoord)) {
-                int i = MathHelper.floor_double(p_147447_2_.xCoord);
-                int j = MathHelper.floor_double(p_147447_2_.yCoord);
-                int k = MathHelper.floor_double(p_147447_2_.zCoord);
-                int l = MathHelper.floor_double(p_147447_1_.xCoord);
-                int i1 = MathHelper.floor_double(p_147447_1_.yCoord);
-                int j1 = MathHelper.floor_double(p_147447_1_.zCoord);
-                Block block = world.getBlock(l, i1, j1);
-                int k1 = world.getBlockMetadata(l, i1, j1);
-
-                ArrayList<MovingObjectPosition> rayTraceHits = new ArrayList<>();
-                k1 = 200;
-
-                outerLoop:
-                while (k1-- >= 0) {
-                    if (Double.isNaN(p_147447_1_.xCoord) || Double.isNaN(p_147447_1_.yCoord) || Double.isNaN(p_147447_1_.zCoord)) {
-                        return null;
-                    }
-
-                    if (l == i && i1 == j && j1 == k) {
-                        return rayTraceHits;
-                    }
-
-                    boolean flag6 = true;
-                    boolean flag3 = true;
-                    boolean flag4 = true;
-                    double d0 = 999.0D;
-                    double d1 = 999.0D;
-                    double d2 = 999.0D;
-
-                    if (i > l) {
-                        d0 = (double) l + 1.0D;
-                    } else if (i < l) {
-                        d0 = (double) l + 0.0D;
-                    } else {
-                        flag6 = false;
-                    }
-
-                    if (j > i1) {
-                        d1 = (double) i1 + 1.0D;
-                    } else if (j < i1) {
-                        d1 = (double) i1 + 0.0D;
-                    } else {
-                        flag3 = false;
-                    }
-
-                    if (k > j1) {
-                        d2 = (double) j1 + 1.0D;
-                    } else if (k < j1) {
-                        d2 = (double) j1 + 0.0D;
-                    } else {
-                        flag4 = false;
-                    }
-
-                    double d3 = 999.0D;
-                    double d4 = 999.0D;
-                    double d5 = 999.0D;
-                    double d6 = p_147447_2_.xCoord - p_147447_1_.xCoord;
-                    double d7 = p_147447_2_.yCoord - p_147447_1_.yCoord;
-                    double d8 = p_147447_2_.zCoord - p_147447_1_.zCoord;
-
-                    if (flag6) {
-                        d3 = (d0 - p_147447_1_.xCoord) / d6;
-                    }
-
-                    if (flag3) {
-                        d4 = (d1 - p_147447_1_.yCoord) / d7;
-                    }
-
-                    if (flag4) {
-                        d5 = (d2 - p_147447_1_.zCoord) / d8;
-                    }
-
-                    boolean flag5 = false;
-                    byte b0;
-
-                    if (d3 < d4 && d3 < d5) {
-                        if (i > l) {
-                            b0 = 4;
-                        } else {
-                            b0 = 5;
-                        }
-
-                        p_147447_1_.xCoord = d0;
-                        p_147447_1_.yCoord += d7 * d3;
-                        p_147447_1_.zCoord += d8 * d3;
-                    } else if (d4 < d5) {
-                        if (j > i1) {
-                            b0 = 0;
-                        } else {
-                            b0 = 1;
-                        }
-
-                        p_147447_1_.xCoord += d6 * d4;
-                        p_147447_1_.yCoord = d1;
-                        p_147447_1_.zCoord += d8 * d4;
-                    } else {
-                        if (k > j1) {
-                            b0 = 2;
-                        } else {
-                            b0 = 3;
-                        }
-
-                        p_147447_1_.xCoord += d6 * d5;
-                        p_147447_1_.yCoord += d7 * d5;
-                        p_147447_1_.zCoord = d2;
-                    }
-
-                    Vec3 vec32 = Vec3.createVectorHelper(p_147447_1_.xCoord, p_147447_1_.yCoord, p_147447_1_.zCoord);
-                    l = (int) (vec32.xCoord = (double) MathHelper.floor_double(p_147447_1_.xCoord));
-
-                    if (b0 == 5) {
-                        --l;
-                        ++vec32.xCoord;
-                    }
-
-                    i1 = (int) (vec32.yCoord = (double) MathHelper.floor_double(p_147447_1_.yCoord));
-
-                    if (b0 == 1) {
-                        --i1;
-                        ++vec32.yCoord;
-                    }
-
-                    j1 = (int) (vec32.zCoord = (double) MathHelper.floor_double(p_147447_1_.zCoord));
-
-                    if (b0 == 3) {
-                        --j1;
-                        ++vec32.zCoord;
-                    }
-
-                    for (MovingObjectPosition mOP : rayTraceHits) {
-                        if (mOP.blockX == l && mOP.blockY == i1 && mOP.blockZ == j1) continue outerLoop;
-                    }
-
-                    Block block1 = world.getBlock(l, i1, j1);
-                    int l1 = world.getBlockMetadata(l, i1, j1);
-
-                    if (!p_147447_4_ || block1.getCollisionBoundingBoxFromPool(world, l, i1, j1) != null) {
-                        if (block1.canCollideCheck(l1, p_147447_3_)) {
-                            MovingObjectPosition movingobjectposition1 = block1.collisionRayTrace(world, l, i1, j1, p_147447_1_, p_147447_2_);
-
-                            if (movingobjectposition1 != null) {
-                                rayTraceHits.add(movingobjectposition1);
-                            }
-                        }
-                    }
-                }
-                return rayTraceHits;
-            } else {
-                return null;
-            }
-        } else {
-            return null;
-        }
     }
 }

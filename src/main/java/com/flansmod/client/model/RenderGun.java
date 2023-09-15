@@ -1,10 +1,8 @@
 package com.flansmod.client.model;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Random;
 
-import net.minecraft.util.ResourceLocation;
 import org.lwjgl.opengl.GL11;
 
 import com.flansmod.client.FlansModClient;
@@ -35,6 +33,7 @@ import net.minecraftforge.client.IItemRenderer;
 
 public class RenderGun implements IItemRenderer {
 	private static TextureManager renderEngine;
+
 	public static float smoothing;
 
 	@Override
@@ -183,8 +182,6 @@ public class RenderGun implements IItemRenderer {
 		if (FlansModClient.zoomProgress > 0.9F && scope.hasZoomOverlay() && !model.stillRenderGunWhenScopedOverlay) {
 			GL11.glPopMatrix();
 			return;
-
-
 		}
 
 		//Resting positions
@@ -203,6 +200,18 @@ public class RenderGun implements IItemRenderer {
 			GL11.glRotatef(4.5F * adsSwitch, 0F, 0F, 1F);
 			// forward, up, sideways
 			GL11.glTranslatef(model.crouchZoom, -0.03F * adsSwitch, 0F);
+		} else if (sprinting) {
+			GL11.glRotatef(25F - 5F * adsSwitch + model.stanceRotate.z, 0F, 0F, 1F);
+			// left/right on length == left/right on height == null == down/up
+			GL11.glRotatef(-5F + model.stanceRotate.x, 0F + model.stanceRotate.y, 1F, -0.0F);
+			GL11.glTranslatef(0.15F, 0.2F + 0.175F * adsSwitch, -0.6F - 0.405F * adsSwitch);
+			if (gunType.hasScopeOverlay && !model.stillRenderGunWhenScopedOverlay) {
+				GL11.glTranslatef(-0.3F * adsSwitch, 0F, 0F);
+			}
+			GL11.glRotatef(4.5F * adsSwitch, 0F, 0F, 1F);
+			// forward, up, sideways
+			GL11.glTranslatef(0.0F + model.stanceTranslate.x, -0.03F * adsSwitch + model.stanceTranslate.y,
+					0F + model.stanceTranslate.z);
 		} else {
 			// Angle down slightly
 			GL11.glRotatef(25F - 5F * adsSwitch, 0F, 0F, 1F); // Angle nose down slightly -> angle nose up slightly
@@ -218,18 +227,8 @@ public class RenderGun implements IItemRenderer {
 		}
 
 		//Weapon switch animation
-		if (animations.switchAnimationProgress > 0 && animations.switchAnimationLength > 0) {
+		if (animations.switchAnimationProgress > 0 && animations.switchAnimationLength > 0)
 			renderWeaponSwitchMovement(animations);
-		}
-
-		//Weapon sprinting animation
-		if (sprinting && animations.stanceTimer == 0 && FlansMod.enableWeaponSprintStance) {
-			if (animations.runningStanceAnimationProgress == 0)
-				animations.runningStanceAnimationProgress = 1;
-			renderWeaponSprintMovement(animations, model, gunType);
-		} else {
-			animations.runningStanceAnimationProgress = 0;
-		}
 
 		//Melee animations
 		if (animations.meleeAnimationProgress > 0 && animations.meleeAnimationProgress < gunType.meleePath.size())
@@ -261,39 +260,6 @@ public class RenderGun implements IItemRenderer {
 
 		GL11.glRotatef(startAngles.y + (endAngles.y - startAngles.y) * interp, 0f, 1f, 0f);
 		GL11.glRotatef(startAngles.z + (endAngles.z - startAngles.z) * interp, 0f, 0f, 1f);
-	}
-
-	private void renderWeaponSprintMovement(GunAnimations animations, ModelGun model, GunType gunType) {
-		Vector3f defaultTranslate = new Vector3f(0, 0F, -0.2);
-		Vector3f defaultRotation = new Vector3f(-15F, 45F, -10F);
-
-		Vector3f configuredTranslate = model.sprintStanceTranslate;
-		Vector3f configuredRotation = model.sprintStanceRotate;
-
-		float progress = (animations.runningStanceAnimationProgress + smoothing) / animations.runningStanceAnimationLength;
-		if (animations.runningStanceAnimationProgress == animations.runningStanceAnimationLength)
-			progress = 1;
-
-		if (FlansMod.enableRandomSprintStance) {
-			animations.updateSprintStance(gunType.getShortName());
-			defaultRotation = animations.sprintingStance;
-		}
-
-		if (!Objects.equals(model.sprintStanceTranslate, new Vector3f(0F, 0F, 0F))) {
-			GL11.glTranslatef(configuredTranslate.x * progress, configuredTranslate.y * progress, configuredTranslate.z * progress);
-		} else {
-			GL11.glTranslatef(defaultTranslate.x * progress, defaultTranslate.y * progress, defaultTranslate.z * progress);
-		}
-
-		if (!Objects.equals(model.sprintStanceRotate, new Vector3f(0F, 0F, 0F))) {
-			GL11.glRotatef(configuredRotation.x * progress, 1f, 0f, 0f);
-			GL11.glRotatef(configuredRotation.y * progress, 0f, 1f, 0f);
-			GL11.glRotatef(configuredRotation.z * progress, 0f, 0f, 1f);
-		} else {
-			GL11.glRotatef(defaultRotation.x * progress, 1f, 0f, 0f);
-			GL11.glRotatef(defaultRotation.y * progress, 0f, 1f, 0f);
-			GL11.glRotatef(defaultRotation.z * progress, 0f, 0f, 1f);
-		}
 	}
 
 	private void renderMeleeMovement(GunType gunType, GunAnimations animations) {
@@ -403,12 +369,6 @@ public class RenderGun implements IItemRenderer {
 
 	private static float getReloadRotate(GunAnimations animations, ModelGun model) {
 		float reloadRotate = 1F;
-
-		// Snap to zero if reload is finished. Otherwise, weird behaviour.
-		if (!animations.reloading) {
-			return 0F;
-		}
-
 		float effectiveReloadAnimationProgress = animations.lastReloadAnimationProgress
 				+ (animations.reloadAnimationProgress - animations.lastReloadAnimationProgress) * smoothing;
 
@@ -581,7 +541,6 @@ public class RenderGun implements IItemRenderer {
 			GL11.glScalef(type.modelScale, type.modelScale, type.modelScale);
 
 			model.renderGun(f);
-
 			// Render the guns default parts if no attachment is installed
 			if (scopeAttachment == null && !model.scopeIsOnSlide && !model.scopeIsOnBreakAction)
 				model.renderDefaultScope(f);
@@ -606,7 +565,7 @@ public class RenderGun implements IItemRenderer {
 
 			//Handle muzzle flash stuffs
 			renderMuzzleFlash(animations, model, type, barrelAttachment, item, f);
-
+			
 			// Render the slide and charge action
 			if (slideAttachment == null)
 				renderSlideModels(scopeAttachment, type, animations, model, f, item);
@@ -617,8 +576,6 @@ public class RenderGun implements IItemRenderer {
 			renderHammer(model, animations, f);
 			//Render pump action(s)
 			renderPumpAction(model, animations, pumpAttachment, f, gripAttachment, type, gadgetAttachment);
-			//Render bolt action(s)
-			renderBoltAction(model, animations, f, type);
 			//Render charge handle(s)
 			renderChargeHandle(model, animations, f);
 			//Render minigun barrels
@@ -724,27 +681,6 @@ public class RenderGun implements IItemRenderer {
 					model.renderDefaultGadget(f);
 			}
 			GL11.glPopMatrix();
-		}
-	}
-
-	private void renderBoltAction(ModelGun model, GunAnimations animations, float f, GunType type) {
-		// Render the bolt action
-		GL11.glPushMatrix();
-		{
-			GL11.glTranslatef(-(1 - Math.abs(animations.lastPumped + (animations.pumped - animations.lastPumped) * smoothing)) * model.boltCycleDistance, 0F, 0F);
-			//injectRotationTool(f, model);
-			GL11.glTranslatef(model.boltRotationOffset.x, model.boltRotationOffset.y, model.boltRotationOffset.z);
-			GL11.glRotatef(-(1 - Math.abs(animations.lastPumped + (animations.pumped - animations.lastPumped) * smoothing)) * model.boltRotationAngle, 1F, 0F, 0F);
-			GL11.glTranslatef(-model.boltRotationOffset.x, -model.boltRotationOffset.y, -model.boltRotationOffset.z);
-			model.renderBoltAction(f);
-		}
-		GL11.glPopMatrix();
-
-		if(FlansModClient.shotState != -1 && -(1 - Math.abs(animations.lastPumped + (animations.pumped - animations.lastPumped) * smoothing)) * model.boltCycleDistance != -0.0) {
-			FlansModClient.shotState = -1;
-			if(type.actionSound != null) {
-				Minecraft.getMinecraft().getSoundHandler().playSound(PositionedSoundRecord.func_147674_a(FlansModResourceHandler.getSound(type.actionSound), 1.0F));
-			}
 		}
 	}
 
@@ -996,6 +932,7 @@ public class RenderGun implements IItemRenderer {
 
 						break;
 					}
+					//TODO
 					case SHOTGUN: case STRIKER: case CUSTOMSHOTGUN: case CUSTOMSTRIKER:
 					{
 						float maxBullets = getNumBulletsInReload(animations, gripAttachment, type, item);
@@ -1104,7 +1041,7 @@ public class RenderGun implements IItemRenderer {
 		}
 		GL11.glPopMatrix();
 	}
-
+	
 	private void renderMuzzleFlash(GunAnimations animations, ModelGun model, GunType type, AttachmentType barrelAttachment, ItemStack item, float f) {
 		boolean isFlashEnabled = barrelAttachment == null || !barrelAttachment.disableMuzzleFlash;
 
@@ -1202,7 +1139,8 @@ public class RenderGun implements IItemRenderer {
 		GL11.glScalef(attachment.modelScale, attachment.modelScale, attachment.modelScale);
 	}
 
-	private void postRenderAttachment(AttachmentType attachment, ItemStack stack, float f) {
+	private void postRenderAttachment(AttachmentType attachment, ItemStack stack, float f)
+	{
 		Paintjob paintjob = attachment.getPaintjob(stack.getItemDamage());
 		ModelAttachment model = attachment.model;
 		if (model != null)
@@ -1211,29 +1149,12 @@ public class RenderGun implements IItemRenderer {
 	}
 
 	/** Load the attachment ammo model plus its texture */
-	private void renderAttachmentAmmo(float f, AttachmentType grip, ModelGun model, Paintjob ammo, Paintjob otherAmmo) {
+	private void renderAttachmentAmmo(float f, AttachmentType grip, ModelGun model, Paintjob ammo, Paintjob otherAmmo)
+	{
 		renderEngine.bindTexture(FlansModResourceHandler.getPaintjobTexture(ammo));
 		GL11.glTranslatef(model.gripAttachPoint.x, model.gripAttachPoint.y, model.gripAttachPoint.z);
 		grip.model.renderAttachmentAmmo(f);
 		renderEngine.bindTexture(FlansModResourceHandler.getPaintjobTexture(otherAmmo));
-	}
-
-	/** Load the corresponding casing model and texture */
-//	private void renderCasingModel(float f, AttachmentType grip, GunType gun, ItemStack gunStack)
-//	{
-
-//	}
-
-	/** Load the corresponding flash model and texture */
-//	private void renderFlashModel()
-//	{
-//
-//	}
-
-	// Part of arms cleanup to rewrite into one method
-	private void renderArms(EntityPlayer player, ModelGun model, GunType type, GunAnimations anim)
-	{
-		
 	}
 
 	private void renderFirstPersonArm(EntityPlayer player, ModelGun model, GunAnimations anim) {
@@ -1370,6 +1291,7 @@ public class RenderGun implements IItemRenderer {
 	 * Get the number of bullets to reload in animation, based on ammo type to
 	 * reload
 	 */
+	//TODO
 	private float getNumBulletsInReload(GunAnimations animations, AttachmentType grip, GunType gun, ItemStack gunStack)
 	{
 		// If this is a singles reload, we want to know the number of bullets already in the gun
@@ -1403,15 +1325,4 @@ public class RenderGun implements IItemRenderer {
 			return gun.model.RotateSlideDistance;
 	}
 
-	/** Renders a cross at the rotation point */
-	private void injectRotationTool(float f, ModelGun model) {
-		ModelRotateTool rotateToolModel = new ModelRotateTool();
-		GL11.glPushMatrix();
-		ModelRotateTool tool = rotateToolModel;
-		GL11.glTranslatef(model.rotationToolOffset.x, model.rotationToolOffset.y, model.rotationToolOffset.z);
-		renderEngine.bindTexture(new ResourceLocation(null, "err"));
-		tool.renderRotateTool(f);
-		GL11.glTranslatef(-model.rotationToolOffset.x, -model.rotationToolOffset.y, -model.rotationToolOffset.z);
-		GL11.glPopMatrix();
-	}
 }

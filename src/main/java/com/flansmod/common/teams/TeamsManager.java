@@ -157,7 +157,7 @@ public class TeamsManager {
         currentMap = null;
 
 
-        //Testing stuff
+        //Testing stuff. TODO : Replace with automatic Gametype loader
         new GameTypeTDM();
         new GameTypeZombies();
 //        new GameTypeConquest();

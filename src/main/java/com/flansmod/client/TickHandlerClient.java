@@ -23,7 +23,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.OpenGlHelper;
@@ -85,7 +84,6 @@ public class TickHandlerClient {
         //If main config is set to false, blanket disable crosshairs (client synced)
         if (!FlansMod.crosshairEnable && event.type == ElementType.CROSSHAIRS && mc.thePlayer != null && mc.thePlayer.getHeldItem() != null && mc.thePlayer.getHeldItem().getItem() instanceof ItemGun) {
             event.setCanceled(true);
-            mc.getTextureManager().bindTexture(Gui.icons);
             return;
         }
         //Otherwise, fall back to weapon config settings (default false)
@@ -94,7 +92,6 @@ public class TickHandlerClient {
             if (event.type == ElementType.CROSSHAIRS && mc.thePlayer != null && mc.thePlayer.getHeldItem() != null && mc.thePlayer.getHeldItem().getItem() instanceof ItemGun) {
                 if (!((ItemGun) mc.thePlayer.getHeldItem().getItem()).type.showCrosshair || FlansModClient.currentScope != null) {
                     event.setCanceled(true);
-                    mc.getTextureManager().bindTexture(Gui.icons);
                     return;
                 }
             }
@@ -732,7 +729,7 @@ public class TickHandlerClient {
             GL11.glEnable(2929 /* GL_DEPTH_TEST */);
             GL11.glEnable(3008 /* GL_ALPHA_TEST */);
             GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-
+            //FlansMod.log(mc.gameSettings.hideGUI);
             tickCountFlash++;
         } else {
             isInFlash = false;
